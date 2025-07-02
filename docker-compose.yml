@@ -1,0 +1,129 @@
+services:
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: minio_evolution
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    volumes:
+      - minio_data:/data
+    env_file:
+      .env
+
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - wa-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq_evolution
+    env_file:
+      - .env
+    ports:
+      - "5672:5672"     # AMQP port
+      - "15672:15672"   # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - wa-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_evolution
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - wa-network
+
+  postgres:
+    image: postgres:latest
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+    networks:
+      - wa-network
+
+
+  evolution-api:
+    container_name: evolution_api
+    image: atendai/evolution-api:v2.1.1
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - evolution_instances:/evolution/instances
+
+    depends_on:
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+
+
+    networks:
+      - wa-network
+
+      
+  n8n:
+    image: n8nio/n8n:latest
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+
+    networks:
+      - wa-network
+
+volumes:
+  pgdata:
+  n8n_data:
+  minio_data:
+  rabbitmq_data:
+  redis_data:
+  evolution_instances:
+
+
+networks:
+  wa-network:
+    driver: bridge
+
